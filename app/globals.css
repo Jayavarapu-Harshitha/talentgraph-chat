@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --navy: #0d1b2a;
+  --navy-mid: #152236;
+  --crimson: #b92b2b;
+  --crimson-l: #d44040;
+  --steel: #2e6da4;
+  --steel-l: #4a8cc4;
+  --off-white: #f6f5f1;
+  --bg: #f2f4f8;
+  --card: #ffffff;
+  --border: #dde0e8;
+  --txt: #1a1f2e;
+  --txt-mid: #4a5568;
+  --txt-soft: #718096;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  color: var(--txt);
+  font-family: var(--font-inter), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Thin scrollbars in chat / drawer areas */
+.tg-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.tg-scroll::-webkit-scrollbar-thumb {
+  background: rgba(113, 128, 150, 0.35);
+  border-radius: 4px;
+}
+.tg-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Markdown spacing inside bot bubbles */
+.tg-markdown > :first-child {
+  margin-top: 0;
+}
+.tg-markdown > :last-child {
+  margin-bottom: 0;
+}
+.tg-markdown p {
+  margin: 0 0 0.6em;
+}
+.tg-markdown ul,
+.tg-markdown ol {
+  margin: 0 0 0.6em;
+  padding-left: 1.2em;
+}
+.tg-markdown li {
+  margin: 0.15em 0;
+}
+.tg-markdown strong {
+  font-weight: 600;
+}
+.tg-markdown a {
+  color: var(--steel);
+  text-decoration: underline;
+}
+.tg-markdown code {
+  background: rgba(46, 109, 164, 0.12);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
