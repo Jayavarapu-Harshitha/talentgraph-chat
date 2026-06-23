@@ -64,6 +64,15 @@ async function probeGeminiNative() {
 export async function GET() {
   const results = [];
 
+  results.push(
+    await probe(
+      "groq",
+      "https://api.groq.com/openai/v1",
+      process.env.GROQ_API_KEY,
+      (process.env.GROQ_MODEL || "llama-3.3-70b-versatile").split(",")[0].trim()
+    )
+  );
+
   results.push(await probeGeminiNative());
 
   results.push(

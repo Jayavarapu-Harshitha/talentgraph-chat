@@ -10,18 +10,21 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   return NextResponse.json({
-    gemini_key: !!process.env.GEMINI_API_KEY,
-    gemini_model: process.env.GEMINI_MODEL || "(default) gemini-2.0-flash",
+    groq_key: !!process.env.GROQ_API_KEY,
+    groq_model: process.env.GROQ_MODEL || "(default) llama-3.3-70b-versatile",
     openrouter_key: !!process.env.OPENROUTER_API_KEY,
     openrouter_model: process.env.OPENROUTER_MODEL || "(default chain)",
+    gemini_key: !!process.env.GEMINI_API_KEY,
     supabase_url: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
     supabase_service_key: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
     admin_password: !!process.env.ADMIN_PASSWORD,
     // first provider the chat route will attempt
-    primary_provider: process.env.GEMINI_API_KEY
-      ? "gemini"
+    primary_provider: process.env.GROQ_API_KEY
+      ? "groq"
       : process.env.OPENROUTER_API_KEY
         ? "openrouter"
-        : "none",
+        : process.env.GEMINI_API_KEY
+          ? "gemini"
+          : "none",
   });
 }

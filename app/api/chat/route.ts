@@ -32,18 +32,18 @@ interface ProviderAttempt {
 function buildProviders(): ProviderAttempt[] {
   const providers: ProviderAttempt[] = [];
 
-  // 1) Google Gemini free tier (dedicated per-key quota) — primary.
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (geminiKey) {
-    const models = (process.env.GEMINI_MODEL || "gemini-2.0-flash")
+  // 1) Groq free tier (PRIMARY — dedicated per-key quota, reliable, fast).
+  const groqKey = process.env.GROQ_API_KEY;
+  if (groqKey) {
+    const models = (process.env.GROQ_MODEL || "llama-3.3-70b-versatile,llama-3.1-8b-instant")
       .split(",")
       .map((m) => m.trim())
       .filter(Boolean);
     for (const model of models) {
       providers.push({
-        label: "gemini",
-        baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
-        apiKey: geminiKey,
+        label: "groq",
+        baseURL: "https://api.groq.com/openai/v1",
+        apiKey: groqKey,
         model,
       });
     }
@@ -73,6 +73,24 @@ function buildProviders(): ProviderAttempt[] {
             process.env.OPENROUTER_SITE_URL ?? "http://localhost:3000",
           "X-Title": process.env.OPENROUTER_SITE_NAME ?? "TalentGraph",
         },
+      });
+    }
+  }
+
+  // 3) Google Gemini — LAST. Many accounts have a free-tier limit of 0 (no
+  // quota unless Cloud billing is enabled), so it's a best-effort tail option.
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (geminiKey) {
+    const models = (process.env.GEMINI_MODEL || "gemini-2.0-flash")
+      .split(",")
+      .map((m) => m.trim())
+      .filter(Boolean);
+    for (const model of models) {
+      providers.push({
+        label: "gemini",
+        baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+        apiKey: geminiKey,
+        model,
       });
     }
   }
@@ -132,7 +150,7 @@ export async function POST(req: Request) {
             apiKey: provider.apiKey,
             baseURL: provider.baseURL,
             defaultHeaders: provider.headers,
-            maxRetries: 1,
+            maxRetries: 0,
           });
 
           const completion = await client.chat.completions.create({
