@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ChatWindow from "@/components/interview/ChatWindow";
 import InputBar from "@/components/interview/InputBar";
-import ActivitySidebar, { SaveStatus } from "@/components/tracker/ActivitySidebar";
 import { Message, TrackerData, HistoryMessage, emptyTracker } from "@/lib/types";
 import { mergeTracker } from "@/lib/tracker";
 import { OPENING_MESSAGE } from "@/lib/systemPrompt";
@@ -37,8 +36,6 @@ export default function InterviewPage() {
   const [sessionId, setSessionId] = useState<string>("");
   const [isBusy, setIsBusy] = useState(false);
   const [showTyping, setShowTyping] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
   const dbRowIdRef = useRef<string | null>(null);
@@ -50,7 +47,6 @@ export default function InterviewPage() {
     tracker: emptyTracker(),
     history: [],
   });
-  const now = new Date();
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
@@ -71,7 +67,6 @@ export default function InterviewPage() {
           );
           setHistory(saved.history ?? []);
           setTracker(saved.tracker ?? emptyTracker());
-          if (saved.dbRowId) setSaveStatus("saved");
           restored = true;
         }
       }
@@ -107,7 +102,6 @@ export default function InterviewPage() {
   const persistToDb = useCallback(
     async (trackerSnapshot: TrackerData, historySnapshot: HistoryMessage[]) => {
       if (!sessionId) return;
-      setSaveStatus("saving");
       try {
         const res = await fetch("/api/save", {
           method: "POST",
@@ -122,10 +116,8 @@ export default function InterviewPage() {
         if (!res.ok) throw new Error(`save ${res.status}`);
         const data = await res.json();
         if (data.id) dbRowIdRef.current = data.id;
-        setSaveStatus("saved");
       } catch (err) {
         console.error("save failed:", err);
-        setSaveStatus("error");
       }
     },
     [sessionId]
@@ -282,64 +274,33 @@ export default function InterviewPage() {
     [isBusy, sessionId, history, tracker, scheduleSave]
   );
 
-  const sidebar = (
-    <ActivitySidebar
-      tracker={tracker}
-      saveStatus={saveStatus}
-      dateLabel={now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-      timeLabel={now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
-      onCloseMobile={() => setSidebarOpen(false)}
-    />
-  );
-
+  // Clean, interviewee-facing chat. The Activity Tracker is intentionally NOT
+  // rendered here — insights are still extracted and auto-saved in the
+  // background and are visible only in the password-protected /admin dashboard.
   return (
-    <div className="flex h-screen overflow-hidden">
-      {/* Desktop sidebar */}
-      <div className="hidden md:flex">{sidebar}</div>
-
-      {/* Mobile sidebar overlay */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40 flex md:hidden">
-          <div className="animate-slide-in">{sidebar}</div>
-          <div
-            className="flex-1 bg-black/40"
-            onClick={() => setSidebarOpen(false)}
-          />
+    <main className="flex h-screen flex-col overflow-hidden bg-off-white">
+      <header className="flex items-center gap-3 border-b border-border bg-card px-6 py-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-off-white text-xl ring-1 ring-border">
+          🎓
         </div>
-      )}
-
-      {/* Chat area */}
-      <main className="flex min-w-0 flex-1 flex-col bg-off-white">
-        <header className="flex items-center gap-3 border-b border-border bg-card px-6 py-3">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="text-txt-mid md:hidden"
-            aria-label="Open tracker"
-          >
-            ☰
-          </button>
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-off-white text-xl ring-1 ring-border">
-            🎓
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-[15px] font-semibold text-txt">
+              Sri · Research Assistant
+            </span>
+            <span className="flex items-center gap-1 text-[11px] text-txt-soft">
+              <span className="h-2 w-2 rounded-full bg-[#2FA866]" />
+              online
+            </span>
           </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <span className="text-[15px] font-semibold text-txt">
-                Sri · Research Assistant
-              </span>
-              <span className="flex items-center gap-1 text-[11px] text-txt-soft">
-                <span className="h-2 w-2 rounded-full bg-[#2FA866]" />
-                online
-              </span>
-            </div>
-            <p className="text-xs text-txt-soft">
-              Talent Visibility Study · Graduate Research
-            </p>
-          </div>
-        </header>
+          <p className="text-xs text-txt-soft">
+            Talent Visibility Study · Graduate Research
+          </p>
+        </div>
+      </header>
 
-        <ChatWindow messages={messages} showTyping={showTyping} />
-        <InputBar onSend={sendMessage} disabled={isBusy} />
-      </main>
-    </div>
+      <ChatWindow messages={messages} showTyping={showTyping} />
+      <InputBar onSend={sendMessage} disabled={isBusy} />
+    </main>
   );
 }
