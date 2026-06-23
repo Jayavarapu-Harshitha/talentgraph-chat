@@ -19,16 +19,35 @@ const SCALAR_KEYS: (keyof TrackerData)[] = ["name", "company", "role", "archetyp
 export function splitReplyAndTracker(raw: string): {
   reply: string;
   tracker: TrackerData;
+  complete: boolean;
 } {
   const start = raw.indexOf(TRACKER_OPEN);
   if (start === -1) {
-    return { reply: raw.trim(), tracker: emptyTracker() };
+    return { reply: raw.trim(), tracker: emptyTracker(), complete: false };
   }
   const reply = raw.slice(0, start).trim();
   const after = raw.slice(start + TRACKER_OPEN.length);
   const end = after.indexOf(TRACKER_CLOSE);
   const jsonText = end === -1 ? after : after.slice(0, end);
-  return { reply, tracker: parseTrackerBlock(jsonText) };
+  return {
+    reply,
+    tracker: parseTrackerBlock(jsonText),
+    complete: parseComplete(jsonText),
+  };
+}
+
+/** Tolerant read of the `complete` flag from the tracker block. */
+export function parseComplete(jsonText: string): boolean {
+  if (!jsonText) return false;
+  const objStart = jsonText.indexOf("{");
+  const objEnd = jsonText.lastIndexOf("}");
+  if (objStart === -1 || objEnd === -1 || objEnd <= objStart) return false;
+  try {
+    const parsed = JSON.parse(jsonText.slice(objStart, objEnd + 1));
+    return parsed.complete === true;
+  } catch {
+    return false;
+  }
 }
 
 /** Tolerant JSON parse of the inner tracker block → normalized TrackerData. */

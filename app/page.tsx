@@ -37,6 +37,7 @@ export default function InterviewPage() {
   const [isBusy, setIsBusy] = useState(false);
   const [showTyping, setShowTyping] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [completed, setCompleted] = useState(false);
 
   const dbRowIdRef = useRef<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -83,7 +84,9 @@ export default function InterviewPage() {
 
   // ── Persist to localStorage on every meaningful change ──────────────────
   useEffect(() => {
-    if (!hydrated || !sessionId) return;
+    // Once an interview is complete we clear local state so the next person
+    // starts fresh — don't re-persist it.
+    if (!hydrated || !sessionId || completed) return;
     const payload: PersistShape = {
       sessionId,
       dbRowId: dbRowIdRef.current,
@@ -96,7 +99,7 @@ export default function InterviewPage() {
     } catch {
       /* storage full / unavailable — non-fatal */
     }
-  }, [hydrated, sessionId, messages, history, tracker]);
+  }, [hydrated, sessionId, messages, history, tracker, completed]);
 
   // ── Save to Supabase (idempotent upsert on session_id) ──────────────────
   const persistToDb = useCallback(
@@ -240,9 +243,11 @@ export default function InterviewPage() {
         }
 
         let trackerUpdate: TrackerData = emptyTracker();
+        let isComplete = false;
         try {
           const parsed = JSON.parse(frameBuf || "{}");
           if (parsed.trackerUpdate) trackerUpdate = parsed.trackerUpdate;
+          if (parsed.complete === true && parsed.error !== true) isComplete = true;
         } catch {
           /* no/invalid frame — keep empty delta */
         }
@@ -252,8 +257,21 @@ export default function InterviewPage() {
         setTracker(mergedTracker);
         setHistory(finalHistory);
 
-        // Debounced auto-save after the reply settles.
-        scheduleSave(mergedTracker, finalHistory);
+        if (isComplete) {
+          // Interview wrapped up: save immediately (no debounce), clear local
+          // state so the next person starts fresh, and show the done screen.
+          if (saveTimer.current) clearTimeout(saveTimer.current);
+          await persistToDb(mergedTracker, finalHistory);
+          try {
+            localStorage.removeItem(STORAGE_KEY);
+          } catch {
+            /* ignore */
+          }
+          setCompleted(true);
+        } else {
+          // Debounced auto-save after the reply settles.
+          scheduleSave(mergedTracker, finalHistory);
+        }
       } catch (err) {
         console.error("chat failed:", err);
         setShowTyping(false);
@@ -271,8 +289,25 @@ export default function InterviewPage() {
         setIsBusy(false);
       }
     },
-    [isBusy, sessionId, history, tracker, scheduleSave]
+    [isBusy, sessionId, history, tracker, scheduleSave, persistToDb]
   );
+
+  // Wipe the conversation and start a brand-new interview for the next person.
+  const resetSession = () => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    dbRowIdRef.current = null;
+    latestRef.current = { tracker: emptyTracker(), history: [] };
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+    setCompleted(false);
+    setTracker(emptyTracker());
+    setHistory([]);
+    setSessionId(newId());
+    setMessages([openingMessage()]);
+  };
 
   // Clean, interviewee-facing chat. The Activity Tracker is intentionally NOT
   // rendered here — insights are still extracted and auto-saved in the
@@ -300,7 +335,32 @@ export default function InterviewPage() {
       </header>
 
       <ChatWindow messages={messages} showTyping={showTyping} />
-      <InputBar onSend={sendMessage} disabled={isBusy} />
+
+      {completed ? (
+        <div className="border-t border-border bg-off-white px-6 py-6">
+          <div className="mx-auto flex max-w-3xl flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-7 text-center shadow-sm">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#2FA866]/15 text-2xl">
+              ✓
+            </div>
+            <div>
+              <p className="text-[15px] font-semibold text-txt">
+                Interview complete — thank you!
+              </p>
+              <p className="mt-1 text-sm text-txt-soft">
+                Your responses have been saved. You can close this tab now.
+              </p>
+            </div>
+            <button
+              onClick={resetSession}
+              className="mt-1 rounded-lg bg-navy px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-steel"
+            >
+              Start a new interview
+            </button>
+          </div>
+        </div>
+      ) : (
+        <InputBar onSend={sendMessage} disabled={isBusy} />
+      )}
     </main>
   );
 }

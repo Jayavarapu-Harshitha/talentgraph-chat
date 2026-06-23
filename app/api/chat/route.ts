@@ -211,12 +211,13 @@ export async function POST(req: Request) {
         controller.enqueue(encoder.encode(FRIENDLY_ERROR));
       }
 
-      const { tracker } = splitReplyAndTracker(full);
+      const { tracker, complete } = splitReplyAndTracker(full);
       controller.enqueue(
         encoder.encode(
           SEP +
             JSON.stringify({
               trackerUpdate: succeeded ? tracker : emptyTracker(),
+              complete: succeeded ? complete : false,
               error: !succeeded,
             })
         )
