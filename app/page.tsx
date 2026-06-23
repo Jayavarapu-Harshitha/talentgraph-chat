@@ -43,7 +43,18 @@ export default function InterviewPage() {
 
   const dbRowIdRef = useRef<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sessionIdRef = useRef<string>("");
+  // Always holds the latest tracker + transcript so the on-exit flush can save
+  // the final turn even if the debounce timer hasn't fired yet.
+  const latestRef = useRef<{ tracker: TrackerData; history: HistoryMessage[] }>({
+    tracker: emptyTracker(),
+    history: [],
+  });
   const now = new Date();
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   // ── Mount: restore from localStorage or start a fresh interview ──────────
   useEffect(() => {
@@ -92,7 +103,7 @@ export default function InterviewPage() {
     }
   }, [hydrated, sessionId, messages, history, tracker]);
 
-  // ── Save to Supabase (INSERT then PATCH) ────────────────────────────────
+  // ── Save to Supabase (idempotent upsert on session_id) ──────────────────
   const persistToDb = useCallback(
     async (trackerSnapshot: TrackerData, historySnapshot: HistoryMessage[]) => {
       if (!sessionId) return;
@@ -122,6 +133,7 @@ export default function InterviewPage() {
 
   const scheduleSave = useCallback(
     (trackerSnapshot: TrackerData, historySnapshot: HistoryMessage[]) => {
+      latestRef.current = { tracker: trackerSnapshot, history: historySnapshot };
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
         persistToDb(trackerSnapshot, historySnapshot);
@@ -129,6 +141,34 @@ export default function InterviewPage() {
     },
     [persistToDb]
   );
+
+  // ── Flush-on-exit: guarantee the final turn (e.g. Sri's closing message) is
+  //    saved even if the user closes/hides the tab before the debounce fires.
+  useEffect(() => {
+    const flush = () => {
+      const sid = sessionIdRef.current;
+      const { tracker: t, history: h } = latestRef.current;
+      if (!sid || h.length === 0) return;
+      try {
+        const blob = new Blob(
+          [JSON.stringify({ sessionId: sid, dbRowId: dbRowIdRef.current, tracker: t, history: h })],
+          { type: "application/json" }
+        );
+        navigator.sendBeacon("/api/save", blob);
+      } catch {
+        /* best-effort on unload */
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, []);
 
   // ── Send a message + stream the reply ───────────────────────────────────
   const sendMessage = useCallback(
