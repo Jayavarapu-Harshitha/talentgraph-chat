@@ -17,5 +17,12 @@ export function getSupabaseAdmin() {
 
   return createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
+    // Next.js App Router caches fetch() by default, and supabase-js uses fetch
+    // internally — which made /api/sessions serve stale rows. Force no-store so
+    // every read/write hits the database fresh.
+    global: {
+      fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+        fetch(input, { ...init, cache: "no-store" }),
+    },
   });
 }
