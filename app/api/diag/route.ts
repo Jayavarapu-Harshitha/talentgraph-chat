@@ -39,8 +39,32 @@ async function probe(
   }
 }
 
+/** Native Gemini call — returns the FULL Google error body (the OpenAI-compat
+ *  layer hides it), revealing the real reason for a 429 (quota / region / etc.). */
+async function probeGeminiNative() {
+  const key = process.env.GEMINI_API_KEY;
+  const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+  if (!key) return { label: "gemini-native", ok: false, error: "no api key set" };
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: "Reply: ok" }] }] }),
+      }
+    );
+    const text = await res.text();
+    return { label: "gemini-native", model, status: res.status, ok: res.ok, body: text.slice(0, 600) };
+  } catch (err) {
+    return { label: "gemini-native", model, ok: false, error: String(err).slice(0, 300) };
+  }
+}
+
 export async function GET() {
   const results = [];
+
+  results.push(await probeGeminiNative());
 
   results.push(
     await probe(
