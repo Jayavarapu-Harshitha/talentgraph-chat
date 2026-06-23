@@ -53,14 +53,23 @@ enterprise talent management. It has two surfaces:
 
    Interview chat → http://localhost:3000 · Admin → http://localhost:3000/admin
 
-## Model & free-tier note
+## Model strategy (reliable on free tier)
 
-The default `OPENROUTER_MODEL` is **`deepseek/deepseek-chat-v3-0324:free`** —
-chosen because it follows the interview behavioral rules well and reliably emits
-the hidden tracker JSON. OpenRouter's free tier allows **~50 requests/day and
-20/min** shared across all free models, and the interview uses one request per
-turn. For heavier interviewing, add a small OpenRouter balance or switch to a
-paid model such as `anthropic/claude-sonnet-4.6`.
+`/api/chat` tries LLM providers in order and only shows an error if **all** fail:
+
+1. **Google Gemini free tier** (primary) — set `GEMINI_API_KEY` from
+   [aistudio.google.com/apikey](https://aistudio.google.com/apikey). The free tier
+   gives a **dedicated per-key quota (~1,500 req/day, 15/min)** on
+   `gemini-2.0-flash`, so it does **not** random-429 the way shared free pools do.
+   This is what keeps the chat stable for free.
+2. **OpenRouter free models** (fallback chain) — `OPENROUTER_MODEL` is a
+   comma-separated list (Llama 3.3 70B → Qwen3 → Gemini Flash exp → …). Used only
+   if Gemini is unavailable. Free OpenRouter models share a global pool and 429
+   frequently with no credit balance — that's why Gemini is primary.
+
+Set either or both. With at least `GEMINI_API_KEY`, the "connection issue"
+message effectively disappears. For top quality, add OpenRouter credit and set
+`OPENROUTER_MODEL` to a paid slug like `anthropic/claude-sonnet-4.6`.
 
 ## How it works
 

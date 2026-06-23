@@ -15,6 +15,71 @@ const SEP = "\x1e";
 const FRIENDLY_ERROR =
   "I'm having a bit of a connection issue on my end — could you try sending that again?";
 
+interface ProviderAttempt {
+  label: string;
+  baseURL: string;
+  apiKey: string;
+  model: string;
+  headers?: Record<string, string>;
+}
+
+/**
+ * Ordered list of (provider, model) attempts. The route tries each in turn and
+ * only surfaces an error if ALL fail. Primary is a DEDICATED free quota (Google
+ * Gemini free tier — not a shared pool, so it doesn't random-429); OpenRouter
+ * free models are the fallback chain behind it.
+ */
+function buildProviders(): ProviderAttempt[] {
+  const providers: ProviderAttempt[] = [];
+
+  // 1) Google Gemini free tier (dedicated per-key quota) — primary.
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (geminiKey) {
+    const models = (process.env.GEMINI_MODEL || "gemini-2.0-flash")
+      .split(",")
+      .map((m) => m.trim())
+      .filter(Boolean);
+    for (const model of models) {
+      providers.push({
+        label: "gemini",
+        baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+        apiKey: geminiKey,
+        model,
+      });
+    }
+  }
+
+  // 2) OpenRouter free models — fallback chain.
+  const orKey = process.env.OPENROUTER_API_KEY;
+  if (orKey) {
+    const defaultChain = [
+      "meta-llama/llama-3.3-70b-instruct:free",
+      "qwen/qwen3-next-80b-a3b-instruct:free",
+      "google/gemini-2.0-flash-exp:free",
+      "meta-llama/llama-3.2-3b-instruct:free",
+    ].join(",");
+    const models = (process.env.OPENROUTER_MODEL || defaultChain)
+      .split(",")
+      .map((m) => m.trim())
+      .filter(Boolean);
+    for (const model of models) {
+      providers.push({
+        label: "openrouter",
+        baseURL: "https://openrouter.ai/api/v1",
+        apiKey: orKey,
+        model,
+        headers: {
+          "HTTP-Referer":
+            process.env.OPENROUTER_SITE_URL ?? "http://localhost:3000",
+          "X-Title": process.env.OPENROUTER_SITE_NAME ?? "TalentGraph",
+        },
+      });
+    }
+  }
+
+  return providers;
+}
+
 export async function POST(req: Request) {
   let body: { messages?: HistoryMessage[]; trackerState?: TrackerData };
   try {
@@ -25,31 +90,18 @@ export async function POST(req: Request) {
 
   const messages = body.messages ?? [];
   const trackerState: TrackerData = body.trackerState ?? emptyTracker();
-
-  const apiKey = process.env.OPENROUTER_API_KEY;
   const encoder = new TextEncoder();
+  const providers = buildProviders();
 
-  if (!apiKey) {
-    const frame =
+  const errorResponse = () =>
+    new Response(
       FRIENDLY_ERROR +
-      SEP +
-      JSON.stringify({ trackerUpdate: emptyTracker(), error: true });
-    return new Response(frame, {
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-    });
-  }
+        SEP +
+        JSON.stringify({ trackerUpdate: emptyTracker(), error: true }),
+      { headers: { "Content-Type": "text/plain; charset=utf-8" } }
+    );
 
-  const client = new OpenAI({
-    apiKey,
-    baseURL: "https://openrouter.ai/api/v1",
-    defaultHeaders: {
-      "HTTP-Referer": process.env.OPENROUTER_SITE_URL ?? "http://localhost:3000",
-      "X-Title": process.env.OPENROUTER_SITE_NAME ?? "TalentGraph",
-    },
-  });
-
-  const model =
-    process.env.OPENROUTER_MODEL ?? "meta-llama/llama-3.3-70b-instruct:free";
+  if (providers.length === 0) return errorResponse();
 
   const apiMessages = [
     { role: "system" as const, content: buildSystemPrompt(trackerState) },
@@ -64,63 +116,94 @@ export async function POST(req: Request) {
       let full = "";
       let emitted = 0;
       let markerFound = false;
+      let succeeded = false;
 
-      try {
-        const completion = await client.chat.completions.create({
-          model,
-          messages: apiMessages,
-          stream: true,
-          temperature: 0.7,
-          max_tokens: 1024,
-        });
+      for (const provider of providers) {
+        // Once we've shown any text to the user we can't switch providers
+        // mid-stream, so stop trying alternatives.
+        if (succeeded || emitted > 0) break;
 
-        for await (const chunk of completion) {
-          const delta = chunk.choices?.[0]?.delta?.content ?? "";
-          if (!delta) continue;
-          full += delta;
-          if (markerFound) continue;
+        // Fresh attempt: reset the per-attempt accumulators.
+        full = "";
+        markerFound = false;
 
-          const idx = full.indexOf(TRACKER_OPEN);
-          if (idx !== -1) {
-            markerFound = true;
-            if (idx > emitted) {
-              controller.enqueue(encoder.encode(full.slice(emitted, idx)));
-              emitted = idx;
-            }
-          } else {
-            // Hold back the last (marker length - 1) chars in case the marker is
-            // split across deltas; only emit what is definitely prose.
-            const safe = full.length - (TRACKER_OPEN.length - 1);
-            if (safe > emitted) {
-              controller.enqueue(encoder.encode(full.slice(emitted, safe)));
-              emitted = safe;
+        try {
+          const client = new OpenAI({
+            apiKey: provider.apiKey,
+            baseURL: provider.baseURL,
+            defaultHeaders: provider.headers,
+            maxRetries: 1,
+          });
+
+          const completion = await client.chat.completions.create({
+            model: provider.model,
+            messages: apiMessages,
+            stream: true,
+            temperature: 0.7,
+            max_tokens: 1024,
+          });
+
+          for await (const chunk of completion) {
+            const delta = chunk.choices?.[0]?.delta?.content ?? "";
+            if (!delta) continue;
+            full += delta;
+            if (markerFound) continue;
+
+            const idx = full.indexOf(TRACKER_OPEN);
+            if (idx !== -1) {
+              markerFound = true;
+              if (idx > emitted) {
+                controller.enqueue(encoder.encode(full.slice(emitted, idx)));
+                emitted = idx;
+              }
+            } else {
+              // Hold back the last (marker length - 1) chars in case the marker
+              // is split across deltas; only emit what is definitely prose.
+              const safe = full.length - (TRACKER_OPEN.length - 1);
+              if (safe > emitted) {
+                controller.enqueue(encoder.encode(full.slice(emitted, safe)));
+                emitted = safe;
+              }
             }
           }
-        }
 
-        if (!markerFound && full.length > emitted) {
-          controller.enqueue(encoder.encode(full.slice(emitted)));
-        }
+          // A provider that returned no content at all → try the next one.
+          if (full.trim().length === 0) continue;
 
-        const { tracker } = splitReplyAndTracker(full);
-        controller.enqueue(
-          encoder.encode(SEP + JSON.stringify({ trackerUpdate: tracker }))
-        );
-      } catch (err) {
-        console.error("[/api/chat] stream error:", err);
-        // If nothing was shown yet, surface the friendly message; otherwise just
-        // close the prose and send an (empty) tracker frame flagged as an error.
-        if (emitted === 0 && !markerFound) {
-          controller.enqueue(encoder.encode(FRIENDLY_ERROR));
+          if (!markerFound && full.length > emitted) {
+            controller.enqueue(encoder.encode(full.slice(emitted)));
+            emitted = full.length;
+          }
+          succeeded = true;
+        } catch (err) {
+          const status =
+            err && typeof err === "object" && "status" in err
+              ? (err as { status?: number }).status
+              : undefined;
+          console.error(
+            `[/api/chat] provider ${provider.label}/${provider.model} failed (status ${status})`
+          );
+          // If we already streamed partial prose, we can't cleanly switch.
+          if (emitted > 0) break;
+          // Otherwise fall through to the next provider.
         }
-        controller.enqueue(
-          encoder.encode(
-            SEP + JSON.stringify({ trackerUpdate: emptyTracker(), error: true })
-          )
-        );
-      } finally {
-        controller.close();
       }
+
+      if (!succeeded && emitted === 0) {
+        controller.enqueue(encoder.encode(FRIENDLY_ERROR));
+      }
+
+      const { tracker } = splitReplyAndTracker(full);
+      controller.enqueue(
+        encoder.encode(
+          SEP +
+            JSON.stringify({
+              trackerUpdate: succeeded ? tracker : emptyTracker(),
+              error: !succeeded,
+            })
+        )
+      );
+      controller.close();
     },
   });
 
