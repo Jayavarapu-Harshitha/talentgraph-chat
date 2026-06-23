@@ -282,18 +282,12 @@ export default function InterviewPage() {
     [isBusy, sessionId, history, tracker, scheduleSave]
   );
 
-  const manualSave = () => {
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    persistToDb(tracker, history);
-  };
-
   const sidebar = (
     <ActivitySidebar
       tracker={tracker}
       saveStatus={saveStatus}
       dateLabel={now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
       timeLabel={now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
-      onSave={manualSave}
       onCloseMobile={() => setSidebarOpen(false)}
     />
   );

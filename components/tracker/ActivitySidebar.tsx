@@ -11,7 +11,6 @@ interface Props {
   saveStatus: SaveStatus;
   dateLabel: string;
   timeLabel: string;
-  onSave: () => void;
   onCloseMobile?: () => void;
 }
 
@@ -38,7 +37,6 @@ export default function ActivitySidebar({
   saveStatus,
   dateLabel,
   timeLabel,
-  onSave,
   onCloseMobile,
 }: Props) {
   const count = trackerInsightCount(tracker);
@@ -136,17 +134,13 @@ export default function ActivitySidebar({
 
       {/* Footer */}
       <div className="border-t border-white/10 px-5 py-4">
-        <div className="mb-3 flex items-center justify-between text-[12px] text-white/55">
+        <div className="flex items-center justify-between text-[12px] text-white/55">
           <span>{dateLabel}</span>
           <span>{timeLabel}</span>
         </div>
-        <button
-          onClick={onSave}
-          disabled={saveStatus === "saving"}
-          className="w-full rounded-lg bg-crimson px-3 py-2.5 text-sm font-medium text-white transition-colors hover:bg-crimson-l disabled:opacity-50"
-        >
-          {saveStatus === "saving" ? "Saving…" : "Save to Database"}
-        </button>
+        <p className="mt-2 text-[11px] text-white/40">
+          Insights save automatically as you talk.
+        </p>
       </div>
     </aside>
   );
